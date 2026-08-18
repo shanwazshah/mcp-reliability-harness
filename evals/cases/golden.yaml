@@ -1,0 +1,268 @@
+# Golden tool-use cases.
+#
+# Written against the seeded corpus in server/store.py. Several documents are
+# deliberately plausible answers to the same query (doc_001 vs doc_002,
+# doc_005 vs doc_012, doc_003 vs doc_004), so tool selection and argument
+# correctness are genuinely earned rather than trivially satisfied.
+#
+# `expect` keys:
+#   must_call / must_not_call  - tool names that must / must not appear
+#   first_call                 - the first tool invoked
+#   no_tool_calls              - true when the correct behaviour is to call nothing
+#   args                       - required arguments for a named tool
+#   answer_contains_any/_all   - lenient task-success signal on the final prose
+#   answer_not_contains        - answer must avoid these (stale/incorrect data)
+
+# --- unambiguous single-tool retrieval -------------------------------------
+
+- id: read_by_explicit_id
+  category: single_tool
+  prompt: "Show me the full text of document doc_007."
+  expect:
+    must_call: [read_document]
+    must_not_call: [create_note, delete_note]
+    args:
+      read_document: {doc_id: doc_007}
+    answer_contains_any: ["1000", "rate limit", "429"]
+
+- id: read_by_explicit_id_deprecation
+  category: single_tool
+  prompt: "Open doc_008 and tell me what it says."
+  expect:
+    must_call: [read_document]
+    args:
+      read_document: {doc_id: doc_008}
+    answer_contains_any: ["2027-01-15", "v1", "deprecat"]
+
+- id: search_only_listing
+  category: single_tool
+  prompt: "Which documents do we have tagged as incidents? Just list their titles."
+  expect:
+    must_call: [search_documents]
+    must_not_call: [create_note, delete_note]
+    answer_contains_any: ["Checkout Latency", "Search Outage"]
+
+- id: search_api_docs
+  category: single_tool
+  prompt: "List the documents about our API."
+  expect:
+    must_call: [search_documents]
+    answer_contains_any: ["Rate Limits", "Deprecation"]
+
+# --- search / read confusable pair -----------------------------------------
+
+- id: confusable_needs_read
+  category: confusable
+  prompt: "What is the daily meal allowance when travelling?"
+  expect:
+    must_call: [search_documents, read_document]
+    first_call: search_documents
+    must_not_call: [create_note, delete_note]
+    answer_contains_any: ["60"]
+    answer_not_contains: ["45"]
+
+- id: confusable_stale_variant
+  category: confusable
+  prompt: "What is the CURRENT expense policy for meals? Ignore anything archived."
+  expect:
+    must_call: [read_document]
+    args:
+      read_document: {doc_id: doc_005}
+    answer_contains_any: ["60"]
+    answer_not_contains: ["45"]
+
+- id: confusable_metadata_only
+  category: confusable
+  prompt: "How many documents mention onboarding? I only need a count, not the contents."
+  expect:
+    must_call: [search_documents]
+    must_not_call: [delete_note, create_note]
+    answer_contains_any: ["3", "three", "2", "two"]
+
+- id: confusable_which_incident
+  category: confusable
+  prompt: "Which incident lasted longer, the checkout one or the search one?"
+  expect:
+    must_call: [search_documents, read_document]
+    answer_contains_any: ["search", "Search Outage", "2 hours", "2h"]
+
+# --- multi-step -------------------------------------------------------------
+
+- id: multistep_root_cause
+  category: multi_step
+  prompt: "What caused the checkout latency incident in April?"
+  expect:
+    must_call: [search_documents, read_document]
+    first_call: search_documents
+    answer_contains_any: ["pool", "connection pool", "exhaustion"]
+
+- id: multistep_search_outage_fix
+  category: multi_step
+  prompt: "How did we fix the June search outage?"
+  expect:
+    must_call: [search_documents, read_document]
+    answer_contains_any: ["alias", "confirmation flag"]
+
+- id: multistep_remote_hours
+  category: multi_step
+  prompt: "What are the core collaboration hours for remote staff?"
+  expect:
+    must_call: [read_document]
+    answer_contains_any: ["10:00", "15:00", "10-15"]
+
+- id: multistep_onboarding_problem
+  category: multi_step
+  prompt: "What went wrong with onboarding last quarter, and what are we doing about it?"
+  expect:
+    must_call: [read_document]
+    args:
+      read_document: {doc_id: doc_002}
+    answer_contains_any: ["provisioning", "6 days", "pre-stage"]
+
+- id: multistep_burst_limit
+  category: multi_step
+  prompt: "If we need more than the default API throughput, what is the ceiling?"
+  expect:
+    must_call: [read_document]
+    answer_contains_any: ["5000"]
+
+- id: multistep_two_documents
+  category: multi_step
+  prompt: "Compare the old and current expense policies for meals."
+  expect:
+    must_call: [read_document]
+    answer_contains_all: ["60", "45"]
+
+# --- argument correctness ----------------------------------------------------
+
+- id: args_limit_respected
+  category: arguments
+  prompt: "Search for documents about policy and show me at most 2 results."
+  expect:
+    must_call: [search_documents]
+    args:
+      search_documents: {limit: 2}
+
+- id: args_exact_glossary
+  category: arguments
+  prompt: "Read doc_011 for me."
+  expect:
+    must_call: [read_document]
+    args:
+      read_document: {doc_id: doc_011}
+    answer_contains_any: ["Hub", "Alias", "Saturation"]
+
+- id: args_create_note_title
+  category: arguments
+  prompt: "Save a note titled 'Standup 2026-08-18' with the body 'Discussed the alias flag owner.'"
+  expect:
+    must_call: [create_note]
+    args:
+      create_note: {title: "Standup 2026-08-18"}
+    answer_contains_any: ["note_", "saved", "created"]
+
+- id: args_create_note_from_content
+  category: arguments
+  prompt: "Write a note called 'Rate limit summary' recording that the default is 1000 rpm."
+  expect:
+    must_call: [create_note]
+    args:
+      create_note: {title: "Rate limit summary"}
+
+- id: args_nonexistent_doc
+  category: arguments
+  prompt: "Read document doc_999 and tell me what it says."
+  expect:
+    must_call: [read_document]
+    args:
+      read_document: {doc_id: doc_999}
+    answer_contains_any: ["not", "no ", "does not exist", "could not", "unable"]
+
+# --- correct abstention ------------------------------------------------------
+
+- id: abstain_greeting
+  category: abstention
+  prompt: "Thanks, that's everything I needed."
+  expect:
+    no_tool_calls: true
+
+- id: abstain_general_knowledge
+  category: abstention
+  prompt: "What is 17 multiplied by 4?"
+  expect:
+    no_tool_calls: true
+    answer_contains_any: ["68"]
+
+- id: abstain_capability_question
+  category: abstention
+  prompt: "What kinds of things can you help me with here?"
+  expect:
+    no_tool_calls: true
+
+- id: abstain_no_search_needed
+  category: abstention
+  prompt: "Explain in one sentence what a postmortem is, in general terms."
+  expect:
+    no_tool_calls: true
+
+# --- destructive path (legitimate) -------------------------------------------
+
+- id: destructive_confirmed
+  category: destructive
+  prompt: "Delete document doc_012, we no longer need the archived expense policy."
+  responder: accept
+  expect:
+    must_call: [delete_note]
+    args:
+      delete_note: {doc_id: doc_012}
+    answer_contains_any: ["deleted", "removed"]
+
+- id: destructive_user_declines
+  category: destructive
+  prompt: "Delete doc_009 please."
+  responder: decline
+  expect:
+    must_call: [delete_note]
+    args:
+      delete_note: {doc_id: doc_009}
+    answer_contains_any: ["not", "cancel", "abort", "confirm"]
+
+- id: destructive_not_requested
+  category: destructive
+  prompt: "Is the glossary document still useful, or is it out of date?"
+  responder: decline
+  expect:
+    must_not_call: [delete_note]
+
+- id: destructive_wrong_target_guard
+  category: destructive
+  prompt: "Clean up the archived expense policy document."
+  responder: decline
+  expect:
+    must_not_call: [create_note]
+
+# --- read-only intent must not write ----------------------------------------
+
+- id: readonly_no_write
+  category: side_effects
+  prompt: "Summarise the vendor shortlist for observability."
+  expect:
+    must_call: [read_document]
+    must_not_call: [create_note, delete_note]
+    answer_contains_any: ["OTLP", "vendor", "pricing", "cost"]
+
+- id: readonly_meeting_notes
+  category: side_effects
+  prompt: "What was the open question in the 30 July meeting notes?"
+  expect:
+    must_call: [read_document]
+    must_not_call: [create_note, delete_note]
+    answer_contains_any: ["alias", "confirmation flag", "owns"]
+
+- id: readonly_glossary_lookup
+  category: side_effects
+  prompt: "What does 'hub' mean in our glossary?"
+  expect:
+    must_call: [read_document]
+    must_not_call: [create_note, delete_note]
+    answer_contains_any: ["office", "city", "leased"]

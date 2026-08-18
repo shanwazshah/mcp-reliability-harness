@@ -1,0 +1,19 @@
+[project]
+name = "mcp-reliability"
+version = "0.1.0"
+description = "Spec-current MCP server (2026-07-28) plus a tool-use reliability and adversarial eval harness"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "litellm>=1.97.0",
+    "mcp[cli]==2.0.0",
+    "opentelemetry-api>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.3",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.52.3",
+]
+
+[tool.uv]
+package = false
